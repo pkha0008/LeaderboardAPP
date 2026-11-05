@@ -16,6 +16,7 @@ No build step, no server, no account. It's plain HTML, CSS and JavaScript.
   - **Money summary and "Settle up":** each player's total put in, winnings and net, plus the fewest payments needed to square up if the pot is on paper.
 - **Finish & crown champion**, with confetti 🎉. Tournaments can be reopened.
 - **Players roster** with emoji avatars and colours, plus an all-time **Hall of fame**.
+- **Shared live database** on the claude.ai link: everyone sees the same leaderboard in real time.
 - **Export / import backup** (JSON) and a currency picker ($, €, £, ₹, …).
 - Works on phones, tablets and desktop.
 
@@ -36,14 +37,29 @@ Any static server works, for example `npx serve .`.
 2. Under **Build and deployment**, set **Source** to *Deploy from a branch*, choose **main** and **/ (root)**, then click **Save**.
 3. After about a minute the app is live at `https://<your-username>.github.io/LeaderboardAPP/`. Share that link.
 
-## Where is the data stored?
+## Shared live database
 
-In the browser's **localStorage**, on each device separately. Nothing is sent to a server.
-That means:
+When the app is opened from its claude.ai link, it saves to a **shared, real-time database**.
+Everyone who opens the link sees the same leaderboard, and changes appear on every phone instantly.
+A status pill in the top bar shows the mode:
 
-- Each person who opens the link gets their **own, separate** leaderboard.
-- Pick one "scorekeeper" device for a tournament, or use **Export backup** / **Import backup** to move data between devices.
-- Clearing browser data or using a private window wipes it, so export a backup now and then.
+| Pill | Meaning |
+| --- | --- |
+| **Live · shared** | Connected. Changes save to the shared database and sync to everyone |
+| **View only** | You can watch live, but your access level doesn't allow changes. Ask the owner for edit (Contributor) access |
+| **On this device** | No shared database here (GitHub Pages, localhost): data is saved in this browser only |
+| **Reconnecting… / Offline** | The shared database can't be reached right now; what you see may be out of date |
+
+Data layout in the shared store: `players/<id>`, `tournaments/<id>` (games and pot history inside), `meta/settings`.
+The first person to open the shared version with data already in their browser uploads it automatically.
+Each tournament is saved as one record, so if two people edit the **same** tournament at the same moment, the last save wins.
+
+**Who can edit:** in the artifact's Share menu, people at Contributor or above can record games and change data. Viewers and Commenters get a read-only, live-updating view.
+
+### Without the shared database
+
+On GitHub Pages or localhost, the app uses the browser's **localStorage**, so each device keeps its own data.
+Use **Export backup** / **Import backup** to move data between devices.
 
 ## Project structure
 
@@ -52,7 +68,8 @@ index.html        page shell
 css/styles.css    all styling
 js/app.js         UI: views, modals, events
 js/logic.js       pure scoring/payout logic (points, pot splits, standings, settle-up)
-js/store.js       localStorage persistence
+js/store.js       localStorage persistence (and offline cache)
+js/sync.js        shared real-time database sync (claude.ai db capability)
 ```
 
 ## How the money works

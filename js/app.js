@@ -1,4 +1,5 @@
 import { load, save, uid, normalize } from './store.js';
+import { createSync } from './sync.js';
 import {
   GAME_TYPES, POINT_PRESETS, PAYOUT_PRESETS, computeStandings, splitPayout, settleUp,
   hallOfFame, gamePool, tournamentPool, parseList, presetKey, pointsForPlace, sortGames, sum, round2,
@@ -40,10 +41,33 @@ const gameIcon = (g) => (GAME_TYPES[g.type] || GAME_TYPES.other).icon;
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
 function commit(msg) {
-  if (!save(state)) toast('⚠️ Could not save — storage is blocked in this browser');
+  const ok = save(state);
+  sync.push();
+  if (!ok && !sync.shared) toast('⚠️ Could not save: this browser is blocking storage');
   else if (msg) toast(msg);
   render();
 }
+
+/* ---------- shared database ---------- */
+const STATUS = {
+  local:      { cls: 'st-local', label: 'On this device', tip: 'Saved in this browser only' },
+  connecting: { cls: 'st-wait',  label: 'Connecting…',    tip: 'Connecting to the shared leaderboard' },
+  live:       { cls: 'st-live',  label: 'Live · shared',  tip: 'Everyone with the link sees changes instantly' },
+  readonly:   { cls: 'st-view',  label: 'View only',      tip: 'You can watch live but not make changes' },
+  slow:       { cls: 'st-wait',  label: 'Reconnecting…',  tip: 'Can’t reach the shared leaderboard yet; what you see may be out of date' },
+  error:      { cls: 'st-err',   label: 'Offline',        tip: 'Lost connection; reload to reconnect' },
+};
+const sync = createSync({
+  getState: () => state,
+  setState: (s) => { state = s; save(state); render(); },
+  onStatus: () => { document.body.classList.toggle('read-only', sync.readOnly); const el = document.getElementById('sync-pill'); if (el) el.outerHTML = syncPill(); },
+  onMessage: (m) => toast(m),
+});
+function syncPill() {
+  const st = STATUS[sync.status] || STATUS.local;
+  return `<span id="sync-pill" class="sync-pill ${st.cls}" title="${esc(st.tip)}"><i></i>${st.label}</span>`;
+}
+const SAFE_ACTIONS = new Set(['close-modal', 'export', 'download-backup', 'copy-backup']);
 
 let toastTimer;
 function toast(msg) {
@@ -78,14 +102,14 @@ function topbar(r) {
     <nav class="nav">
       <a href="#/" class="${r.view !== 'players' ? 'active' : ''}">Tournaments</a>
       <a href="#/players" class="${r.view === 'players' ? 'active' : ''}">Players</a>
-    </nav></div></header>`;
+    </nav>${syncPill()}</div></header>`;
 }
 
 function footer() {
   const cur = state.settings.currency;
   const opts = ['$', '€', '£', '₹', '¥', 'A$', 'C$', '₩', 'R$', 'kr '].map((c) => `<option ${c === cur ? 'selected' : ''} value="${esc(c)}">${esc(c.trim())}</option>`).join('');
   return `<footer class="container footer">
-    <div class="footer-left">Saved in this browser · <button class="link" data-action="export">Export backup</button> · <button class="link" data-action="import">Import backup</button></div>
+    <div class="footer-left">${sync.shared ? 'Shared live with everyone who has the link' : 'Saved in this browser'} · <button class="link" data-action="export">Export backup</button> · <button class="link" data-action="import">Import backup</button></div>
     <label class="footer-cur">Currency <select data-setting="currency">${opts}</select></label>
   </footer>`;
 }
@@ -387,7 +411,7 @@ function addNewPlayers(str) {
 }
 function newPlayer(name) {
   const i = state.players.length;
-  return { id: uid(), name: name.slice(0, 40), emoji: EMOJIS[(i * 7 + 3) % EMOJIS.length], color: COLORS[i % COLORS.length] };
+  return { id: uid(), createdAt: Date.now() + i, name: name.slice(0, 40), emoji: EMOJIS[(i * 7 + 3) % EMOJIS.length], color: COLORS[i % COLORS.length] };
 }
 
 function applyTournamentForm(t, fd) {
@@ -539,6 +563,7 @@ function onGameInput(e, isChange) {
 
 function saveGame() {
   const t = tourney(draft.tid);
+  if (!t) { closeModal(); return toast('That tournament was deleted by someone else'); }
   if (!draft.participants.length) return toast('Pick at least one player');
   const results = draft.participants.map((id) => ({ playerId: id, place: draft.places[id] || 1 }));
   const contributions = {};
@@ -589,6 +614,7 @@ document.addEventListener('click', async (e) => {
   const el = e.target.closest('[data-action]');
   if (!el) return;
   const a = el.dataset.action;
+  if (sync.readOnly && !SAFE_ACTIONS.has(a)) { toast('👀 View only: ask the owner for edit access to make changes'); return; }
   const t = el.dataset.id ? tourney(el.dataset.id) : null;
   switch (a) {
     case 'close-modal': closeModal(); break;
@@ -648,6 +674,7 @@ document.addEventListener('submit', (e) => {
   const f = e.target;
   if (!f.dataset.form) return;
   e.preventDefault();
+  if (sync.readOnly) { closeModal(); toast('👀 View only: ask the owner for edit access to make changes'); return; }
   const fd = new FormData(f);
   switch (f.dataset.form) {
     case 'new-tournament': {
@@ -771,3 +798,4 @@ document.getElementById('import-file').addEventListener('change', async (e) => {
 
 window.addEventListener('hashchange', () => { closeModal(); render(); window.scrollTo(0, 0); });
 render();
+sync.start();

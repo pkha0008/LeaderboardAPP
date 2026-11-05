@@ -373,3 +373,17 @@ textarea { resize: vertical; }
 .ask-msg { margin: 0 0 18px; font-size: 16px; }
 .mono { font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace !important; }
 body::before { content: ''; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--bg); }
+
+/* shared-database status */
+.sync-pill { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border-radius: 999px; font-size: 12px; font-weight: 600; border: 1px solid var(--border); background: var(--surface); color: var(--muted); white-space: nowrap; }
+.sync-pill i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.sync-pill.st-live { color: var(--green); border-color: rgba(77, 212, 172, .35); }
+.sync-pill.st-live i { animation: pulse 2s ease-in-out infinite; }
+.sync-pill.st-view { color: var(--gold); border-color: rgba(245, 196, 81, .35); }
+.sync-pill.st-err { color: var(--red); border-color: rgba(255, 107, 107, .35); }
+@keyframes pulse { 50% { opacity: .35; } }
+.topbar-inner .nav { margin-left: auto; }
+@media (max-width: 520px) { .sync-pill { padding: 5px 8px; } .sync-pill.st-local, .sync-pill.st-wait { display: none; } }
+.read-only [data-action="record-game"], .read-only [data-action="new-tournament"], .read-only form[data-form="quick-player"],
+.read-only .game-actions, .read-only .pot-buttons, .read-only .danger-zone, .read-only form[data-form="settings"] .form-actions,
+.read-only [data-action="delete-entry"], .read-only [data-action="edit-player"], .read-only [data-action="import"], .read-only [data-action="pot-enable"] { display: none !important; }
