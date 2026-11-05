@@ -1,4 +1,5 @@
 :root {
+  /* Single deliberate dark look: night-time card table, gold & neon accents. */
   --bg: #0b0d1a;
   --bg-2: #11142a;
   --surface: rgba(255, 255, 255, 0.045);
@@ -59,7 +60,7 @@ em { font-style: normal; }
 
 /* ---------- top bar ---------- */
 .topbar {
-  position: sticky; top: 0; z-index: 20;
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
   backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
   background: rgba(11, 13, 26, 0.72);
   border-bottom: 1px solid var(--border);
@@ -368,3 +369,7 @@ textarea { resize: vertical; }
 .confetti { position: fixed; inset: 0; pointer-events: none; z-index: 90; }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+.ask-msg { margin: 0 0 18px; font-size: 16px; }
+.mono { font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace !important; }
+body::before { content: ''; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--bg); }

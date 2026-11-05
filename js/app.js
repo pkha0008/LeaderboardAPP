@@ -366,7 +366,7 @@ function openModal(title, body, wide = false) {
   const first = $modal.querySelector('input:not([type=checkbox]):not([type=radio]), select, textarea');
   if (first && !draft) first.focus();
 }
-function closeModal() { $modal.innerHTML = ''; draft = null; document.body.classList.remove('modal-open'); }
+function closeModal() { if (askResolve) { const r = askResolve; askResolve = null; r(false); } $modal.innerHTML = ''; draft = null; document.body.classList.remove('modal-open'); }
 
 function openNewTournament() {
   const n = state.tournaments.length + 1;
@@ -583,7 +583,9 @@ function confetti() {
 }
 
 /* ---------- events ---------- */
-document.addEventListener('click', (e) => {
+document.addEventListener('click', async (e) => {
+  const askBtn = e.target.closest('[data-ask]');
+  if (askBtn) { const r = askResolve; askResolve = null; closeModal(); r?.(askBtn.dataset.ask === 'yes'); return; }
   const el = e.target.closest('[data-action]');
   if (!el) return;
   const a = el.dataset.action;
@@ -594,14 +596,14 @@ document.addEventListener('click', (e) => {
     case 'record-game': openGameModal(t); break;
     case 'edit-game': openGameModal(t, t.games.find((g) => g.id === el.dataset.gid)); break;
     case 'delete-game':
-      if (confirm('Delete this game? Points and pot results from it will be removed.')) { t.games = t.games.filter((g) => g.id !== el.dataset.gid); commit('Game deleted'); }
+      if (await ask('Delete this game? Its points and pot results will be removed.', 'Delete game', true)) { t.games = t.games.filter((g) => g.id !== el.dataset.gid); commit('Game deleted'); }
       break;
     case 'edit-player': openPlayerModal(player(el.dataset.id)); break;
     case 'delete-player': {
       const id = el.dataset.id;
       const used = state.tournaments.some((x) => x.games.some((g) => g.results.some((r) => r.playerId === id)) || x.pot.entries.some((en) => en.playerId === id));
       if (used) { toast('This player has game history, so they can\'t be deleted. Rename them instead.'); break; }
-      if (!confirm(`Delete ${player(id).name}?`)) break;
+      if (!(await ask(`Delete ${esc(player(id).name)}?`, 'Delete player', true))) break;
       state.players = state.players.filter((p) => p.id !== id);
       state.tournaments.forEach((x) => (x.playerIds = x.playerIds.filter((pid) => pid !== id)));
       closeModal(); commit('Player deleted');
@@ -610,7 +612,7 @@ document.addEventListener('click', (e) => {
     case 'pot-enable': t.pot.enabled = true; commit('Tournament pot turned on'); break;
     case 'add-money': openAddMoney(t); break;
     case 'buy-in-all':
-      if (!confirm(`Add a ${money(t.pot.buyIn).replace(/&amp;/g, '&')} buy-in for all ${t.playerIds.length} players?`)) break;
+      if (!(await ask(`Add a <b>${money(t.pot.buyIn)}</b> buy-in for all ${t.playerIds.length} players?`, 'Add buy-ins'))) break;
       t.playerIds.forEach((pid) => t.pot.entries.push({ id: uid(), playerId: pid, amount: +t.pot.buyIn, at: Date.now() }));
       commit(`💰 Everyone bought in: pot is now ${money(tournamentPool(t)).replace(/&amp;/g, '&')}`);
       break;
@@ -619,7 +621,7 @@ document.addEventListener('click', (e) => {
       const s = computeStandings(t);
       if (!s.gamesCount) { toast('Record at least one game first'); break; }
       const champ = player(s.rows[0].playerId);
-      if (!confirm(`Finish "${t.name}" and crown ${champ.name} champion?`)) break;
+      if (!(await ask(`Finish <b>${esc(t.name)}</b> and crown <b>${esc(champ.name)}</b> champion? You can reopen it later.`, '🏆 Crown champion'))) break;
       t.status = 'finished'; t.championId = champ.id; t.finishedAt = Date.now();
       location.hash = `#/t/${t.id}`;
       commit(`👑 ${champ.name} is the champion!`);
@@ -628,13 +630,17 @@ document.addEventListener('click', (e) => {
     }
     case 'reopen': t.status = 'active'; t.championId = null; commit('Tournament reopened'); break;
     case 'delete-tournament':
-      if (!confirm(`Permanently delete "${t.name}" and all its games?`)) break;
+      if (!(await ask(`Permanently delete <b>${esc(t.name)}</b> and all its games? This can't be undone.`, 'Delete tournament', true))) break;
       state.tournaments = state.tournaments.filter((x) => x.id !== t.id);
       location.hash = '#/';
       commit('Tournament deleted');
       break;
-    case 'export': exportData(); break;
-    case 'import': document.getElementById('import-file').click(); break;
+    case 'export': openExport(); break;
+    case 'download-backup': downloadBackup(); break;
+    case 'copy-backup': copyBackup(); break;
+    case 'import': openImport(); break;
+    case 'pick-file': document.getElementById('import-file').click(); break;
+    case 'restore-paste': restoreFrom($modal.querySelector('#paste-backup')?.value); break;
   }
 });
 
@@ -705,28 +711,62 @@ document.addEventListener('change', (e) => {
 
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $modal.innerHTML) closeModal(); });
 
-function exportData() {
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+/* ---------- confirm dialog (window.confirm is blocked in some embeds) ---------- */
+let askResolve = null;
+function ask(message, okLabel = 'OK', danger = false) {
+  askResolve?.(false);
+  return new Promise((resolve) => {
+    openModal('Are you sure?', `<p class="ask-msg">${message}</p><div class="form-actions">
+      <button type="button" class="btn ghost" data-ask="no">Cancel</button>
+      <button type="button" class="btn ${danger ? 'danger' : 'primary'}" data-ask="yes">${okLabel}</button></div>`);
+    askResolve = resolve;
+    $modal.querySelector('[data-ask=yes]').focus();
+  });
+}
+
+/* ---------- backup ---------- */
+const backupText = () => JSON.stringify(state, null, 2);
+function openExport() {
+  openModal('Export backup', `<div class="form">
+    <p class="muted">Your data lives only in this browser. Save a backup to move it to another device or keep it safe.</p>
+    <textarea id="backup-text" rows="8" readonly class="mono">${esc(backupText())}</textarea>
+    <div class="form-actions"><button type="button" class="btn" data-action="download-backup">Download file</button><button type="button" class="btn primary" data-action="copy-backup">Copy to clipboard</button></div></div>`);
+}
+function downloadBackup() {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
+  a.href = URL.createObjectURL(new Blob([backupText()], { type: 'application/json' }));
   a.download = `game-night-leaderboard-${today()}.json`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  toast('Backup downloaded');
+  toast('Download started. If nothing happened, use Copy instead.');
+}
+async function copyBackup() {
+  try { await navigator.clipboard.writeText(backupText()); toast('Backup copied. Paste it somewhere safe.'); }
+  catch { const ta = $modal.querySelector('#backup-text'); ta.focus(); ta.select(); toast('Press Ctrl/Cmd + C to copy the selected text'); }
+}
+function openImport() {
+  openModal('Import backup', `<div class="form">
+    <p class="muted">Restoring a backup <b>replaces</b> everything currently in this browser.</p>
+    <button type="button" class="btn" data-action="pick-file">Choose a backup file…</button>
+    <label class="field"><span>…or paste backup text</span><textarea id="paste-backup" rows="6" class="mono" placeholder='{"version":1, …}'></textarea></label>
+    <div class="form-actions"><button type="button" class="btn ghost" data-action="close-modal">Cancel</button><button type="button" class="btn primary" data-action="restore-paste">Restore pasted backup</button></div></div>`);
+}
+function restoreFrom(text) {
+  try {
+    const raw = JSON.parse(text);
+    if (!raw || !Array.isArray(raw.tournaments) || !Array.isArray(raw.players)) throw new Error('bad');
+    state = normalize(raw);
+    closeModal();
+    commit(`Backup restored: ${plural(state.tournaments.length, 'tournament')}, ${plural(state.players.length, 'player')}`);
+  } catch {
+    toast('That is not a valid backup');
+  }
 }
 
 document.getElementById('import-file').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   e.target.value = '';
-  if (!file) return;
-  try {
-    const data = normalize(JSON.parse(await file.text()));
-    if (!confirm(`Replace current data with this backup (${data.tournaments.length} tournaments, ${data.players.length} players)?`)) return;
-    state = data;
-    commit('Backup restored');
-  } catch {
-    toast('That file is not a valid backup');
-  }
+  if (file) restoreFrom(await file.text());
 });
 
 window.addEventListener('hashchange', () => { closeModal(); render(); window.scrollTo(0, 0); });
